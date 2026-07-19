@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str | None = None
+    ENABLE_CELERY: bool = False
     MAIL_USERNAME: str
     MAIL_PASSWORD: str
     MAIL_FROM: str
@@ -37,6 +38,11 @@ def get_settings():
 
 Config = get_settings()
 
-broker_url = Config.REDIS_URL
-result_backend = Config.REDIS_URL
+if Config.ENABLE_CELERY and Config.REDIS_URL:
+    broker_url = Config.REDIS_URL
+    result_backend = Config.REDIS_URL
+else:
+    broker_url = "memory://"
+    result_backend = "cache+memory://"
+
 broker_connection_retry_on_startup = True

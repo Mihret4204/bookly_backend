@@ -10,6 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.auth.utils import (
     create_access_token,
     create_url_safe_token,
+    decode_token,
     decode_url_safe_token,
     generate_password_hash,
     verify_password,
@@ -18,7 +19,6 @@ from src.celery_tasks import send_email
 from src.config import Config
 from src.db.main import get_session
 from src.db.models import Book, User, UserFavorite
-from src.db.redis import add_jti_to_blocklist
 from src.mail import create_message, mail
 
 from .dependencies import (
@@ -106,17 +106,19 @@ async def login(
     user = await user_service.get_user_by_email(login_data.email, session)
 
     if user and verify_password(login_data.password, user.password_hash):
+        refresh_token = create_access_token(
+            user_data={"email": user.email, "user_uid": str(user.uid)},
+            refresh=True,
+            expiry=timedelta(days=REFRESH_TOKEN_EXPIRY),
+        )
+        refresh_token_data = decode_token(refresh_token)
         access_token = create_access_token(
             user_data={
                 "email": user.email,
                 "user_uid": str(user.uid),
                 "role": str(user.role),
-            }
-        )
-        refresh_token = create_access_token(
-            user_data={"email": user.email, "user_uid": str(user.uid)},
-            refresh=True,
-            expiry=timedelta(days=REFRESH_TOKEN_EXPIRY),
+            },
+            refresh_jti=refresh_token_data.get("jti") if refresh_token_data else None,
         )
         return JSONResponse(
             content={
@@ -144,10 +146,20 @@ async def login(
 @auth_router.get("/refresh_token")
 async def get_new_access_token(
     token_data: Dict[str, Any] = Depends(get_refresh_token_data),
+    session: AsyncSession = Depends(get_session),
 ):
+    if await user_service.is_refresh_token_revoked(token_data.get("jti", ""), session):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Refresh token has been revoked",
+        )
+
     expiry_timestamp = token_data["exp"]
     if datetime.fromtimestamp(expiry_timestamp) > datetime.now():
-        new_access_token = create_access_token(user_data=token_data["user"])
+        new_access_token = create_access_token(
+            user_data=token_data["user"],
+            refresh_jti=token_data.get("refresh_jti") or token_data.get("jti"),
+        )
         return JSONResponse(content={"access_token": new_access_token})
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token"
@@ -208,9 +220,10 @@ async def get_me(
 @auth_router.get("/logout")
 async def revoke_token(
     token_data: Dict[str, Any] = Depends(get_access_token_data),
+    session: AsyncSession = Depends(get_session),
 ):
-    jti = token_data["jti"]
-    await add_jti_to_blocklist(jti)
+    refresh_jti = token_data.get("refresh_jti") or token_data.get("jti")
+    await user_service.revoke_refresh_token(refresh_jti, session)
     return JSONResponse(
         content={"message": "Logged out successfully"},
         status_code=status.HTTP_200_OK,

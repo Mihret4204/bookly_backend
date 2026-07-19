@@ -3,7 +3,6 @@ from fastapi.security import HTTPBearer
 from fastapi.security.http import HTTPAuthorizationCredentials
 from .utils import decode_token
 from fastapi.exceptions import HTTPException
-from src.db.redis import token_in_blocklist
 from sqlmodel.ext.asyncio.session import AsyncSession
 from src.db.main import get_session
 from .service import UserService
@@ -40,17 +39,7 @@ class TokenBearer(HTTPBearer):
                 detail='Invalid or expired token'
             )
             
-        # 3. Check Redis Blocklist
-        if await token_in_blocklist(token_data.get('jti', '')):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    'error': 'This token is invalid or has been revoked',
-                    'resolution': 'Please get a new token'
-                }
-            )
-            
-        # 4. Enforce Token Type (Access vs Refresh)
+        # 3. Enforce Token Type (Access vs Refresh)
         self.verify_token_data(token_data)
         
         return token_data

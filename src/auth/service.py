@@ -1,8 +1,9 @@
-from src.db.models import User
+from src.db.models import RevokedRefreshToken, User
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import select
 from .schemas import UserCreateModel
 from .utils import generate_password_hash
+
 
 class UserService:
     async def get_user_by_email(self,email, session: AsyncSession):
@@ -43,3 +44,23 @@ class UserService:
         await session.commit()
 
         return user
+
+    async def revoke_refresh_token(self, jti: str, session: AsyncSession) -> bool:
+        if not jti:
+            return False
+
+        existing = await self.is_refresh_token_revoked(jti, session)
+        if existing:
+            return False
+
+        session.add(RevokedRefreshToken(jti=jti))
+        await session.commit()
+        return True
+
+    async def is_refresh_token_revoked(self, jti: str, session: AsyncSession) -> bool:
+        if not jti:
+            return False
+
+        statement = select(RevokedRefreshToken).where(RevokedRefreshToken.jti == jti)
+        result = await session.execute(statement)
+        return result.scalar_one_or_none() is not None

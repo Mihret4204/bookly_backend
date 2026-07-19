@@ -44,6 +44,13 @@ class UserFavorite(SQLModel, table=True):
 # USER
 # ──────────────────────────────────────────────────────────────
 
+class RevokedRefreshToken(SQLModel, table=True):
+    __tablename__ = "revoked_refresh_tokens"
+
+    jti: str = Field(primary_key=True, max_length=128)
+    revoked_at: datetime = Field(default_factory=datetime.now, nullable=False)
+
+
 class User(SQLModel, table=True):
     __tablename__ = "users"
 

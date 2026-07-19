@@ -1,5 +1,6 @@
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
+from typing import Optional
 from src.config import Config
 import jwt
 import uuid
@@ -9,7 +10,7 @@ from itsdangerous import URLSafeSerializer
 passwd_context = CryptContext(
     schemes=['bcrypt']
 )
-ACCESS_TOKEN_EXPIRY= 3600
+ACCESS_TOKEN_EXPIRY = 15 * 60
 
 def generate_password_hash(password: str) -> str:
     hash = passwd_context.hash(password)
@@ -18,21 +19,30 @@ def generate_password_hash(password: str) -> str:
 def verify_password(password: str, hash: str) -> bool:
     return passwd_context.verify(password, hash)
 
-def create_access_token(user_data:dict, expiry: timedelta= None, refresh: bool=False):
-    
-    payload={}
+def create_access_token(
+    user_data: dict,
+    expiry: Optional[timedelta] = None,
+    refresh: bool = False,
+    refresh_jti: Optional[str] = None,
+):
+    payload = {}
 
-    payload['user']= user_data
-    payload['exp']= datetime.now() + (
+    payload['user'] = user_data
+    payload['exp'] = datetime.now() + (
         expiry if expiry is not None else timedelta(seconds=ACCESS_TOKEN_EXPIRY)
-        )
+    )
     payload['jti'] = str(uuid.uuid4())
-    payload['refresh']= refresh
+    payload['refresh'] = refresh
 
-    token=jwt.encode(
+    if refresh_jti is not None:
+        payload['refresh_jti'] = refresh_jti
+    elif refresh:
+        payload['refresh_jti'] = payload['jti']
+
+    token = jwt.encode(
         payload=payload,
         key=Config.JWT_SECRET_KEY,
-        algorithm= Config.JWT_ALGORITHM
+        algorithm=Config.JWT_ALGORITHM
     )
 
     return token
